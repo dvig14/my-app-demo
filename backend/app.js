@@ -5,4 +5,4 @@ app.get('/api/status', (req, res) => {
   res.json({ status: '✅ App running fine!' });
 });
 
-module.export = app;
+module.exports = app;
