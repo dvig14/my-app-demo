@@ -41,6 +41,7 @@ pipeline {
                         echo 'Building Frontend...'
                         dir('frontend') {
                             sh 'npm run build'
+                            sh 'zip -r frontend.zip build'
                         }
                     }
                 }
@@ -49,7 +50,7 @@ pipeline {
                     steps {
                         echo 'Building Backend...'
                         dir('backend') {
-                            sh 'zip -r backend.zip'
+                            sh 'zip -r backend.zip . -x "node_modules/*"'
                         }
                     }
                 }
