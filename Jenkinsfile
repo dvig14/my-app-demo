@@ -12,6 +12,27 @@ pipeline {
                 checkout scm
             }
         }
+        
+        stage('Install & Test') {
+            parallel {
+                stage('Frontend') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm install'
+                            sh 'npm test' 
+                        }
+                    }
+                }
+                stage('Backend') {
+                    steps {
+                        dir('backend') {
+                            sh 'npm install'
+                            sh 'npm test'
+                        }
+                    }
+                }
+            }
+        }
 
         stage('Build') {
             parallel {
@@ -19,7 +40,6 @@ pipeline {
                     steps {
                         echo 'Building Frontend...'
                         dir('frontend') {
-                            sh 'npm install'
                             sh 'npm run build'
                         }
                     }
@@ -29,13 +49,11 @@ pipeline {
                     steps {
                         echo 'Building Backend...'
                         dir('backend') {
-                            sh 'npm install'
-                            sh 'zip -r backend.zip.'
+                            sh 'zip -r backend.zip'
                         }
                     }
                 }
             }
         }
-    }
-        
+    }      
 }
