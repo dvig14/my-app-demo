@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "jest --watchAll=false"
+    "test:unit": "jest --testMatch '**/tests/unit/**/*.test.js' --watchAll=false",
+    "test:staging": "jest --testMatch '**/tests/staging/**/*.test.js' --watchAll=false"
   },
   "keywords": [],
   "author": "",
