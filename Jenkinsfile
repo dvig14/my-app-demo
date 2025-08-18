@@ -149,32 +149,30 @@ pipeline {
                API_BASE_URL = "http://192.168.56.11:3001"   // Backend staging port
                FRONTEND_BASE_URL = "http://192.168.56.11:81"   // Frontend staging URL
             }
-            steps {
-                parallel {
-                    stage('Frontend E2E Test') {
-                        steps {
-                            dir('tests/frontend') {
-                                sh """
-                                  export BASE_URL=$FRONTEND_BASE_URL
-                                  npm install
-                                  npx cypress run --config baseUrl=$BASE_URL
-                                """
-                            }
-                        }
-                    }
-                    stage('Backend API Test') {
-                        steps {
-                            dir('backend') {
-                                sh """
-                                  export API_BASE_URL=$API_BASE_URL
-                                  npm install
-                                  npm run test:staging
-                                """
-                            }
+            parallel {
+                stage('Frontend E2E Test') {
+                    steps {
+                        dir('tests/frontend') {
+                            sh """
+                                export BASE_URL=$FRONTEND_BASE_URL
+                                npm install
+                                npx cypress run --config baseUrl=$BASE_URL
+                            """   
                         }
                     }
                 }
-            }
+                stage('Backend API Test') {
+                    steps {
+                        dir('backend') {
+                            sh """
+                                export API_BASE_URL=$API_BASE_URL
+                                npm install
+                                npm run test:staging
+                            """
+                        }
+                    }
+                }
+            }     
         }
 
         stage('Manual Approval for Production') {
