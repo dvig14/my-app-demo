@@ -124,7 +124,7 @@ pipeline {
             steps {
                 dir('failops/infra/terraform/vagrant') {
                     sh """
-                      terraform init -backend-config="key=terra-infra/terraform.tfstate"
+                      terraform init -plugin-dir=./.providers -backend-config="key=terra-infra/terraform.tfstate"
                       terraform apply -var="app_enable=true" -auto-approve=true
                     """
                 }
