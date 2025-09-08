@@ -1,26 +1,40 @@
 def deployApp(branchName, envName, frontendDir, backendDir, backendService) {
-    sh """
-        echo "Deploying ${branchName} to ${envName}..."
+    sshagent(credentials: ['app-vm-ssh']) {   // <-- Use Jenkins SSH key
+        sh """
+            echo "Deploying ${branchName} to ${envName}..."
 
-        mc cp $MINIO_ALIAS/$MINIO_BUCKET/frontend/$branchName/$BUILD_ID_TAG/frontend.zip ./frontend-app-${envName}.zip
-        mc cp $MINIO_ALIAS/$MINIO_BUCKET/backend/$branchName/$BUILD_ID_TAG/backend.zip ./backend-app-${envName}.zip
+            mc cp $MINIO_ALIAS/$MINIO_BUCKET/frontend/$branchName/$BUILD_ID_TAG/frontend.zip ./frontend-app-${envName}.zip
+            mc cp $MINIO_ALIAS/$MINIO_BUCKET/backend/$branchName/$BUILD_ID_TAG/backend.zip ./backend-app-${envName}.zip
 
-        scp frontend-app-${envName}.zip vagrant@192.168.56.11:~/
-        scp backend-app-${envName}.zip vagrant@192.168.56.11:~/
+            scp -o StrictHostKeyChecking=no frontend-app-${envName}.zip vagrant@192.168.57.11:~/
+            scp -o StrictHostKeyChecking=no backend-app-${envName}.zip vagrant@192.168.57.11:~/
 
-        ssh vagrant@192.168.56.11 << EOF
-            sudo unzip -o ~/frontend-app-${envName}.zip -d ${frontendDir}
-            sudo rm ~/frontend-app-${envName}.zip
+            ssh -o StrictHostKeyChecking=no vagrant@192.168.57.11 << EOF
+if ! command -v unzip &> /dev/null; then
+    echo "unzip not found. Installing..."
+    sudo apt-get update
+    sudo apt-get install -y unzip
+fi
 
-            sudo unzip -o ~/backend-app-${envName}.zip -d ${backendDir}
-            sudo rm ~/backend-app-${envName}.zip
+sudo rm -rf ${frontendDir}/*
+sudo unzip -o ~/frontend-app-${envName}.zip -d ${frontendDir}
+sudo mv ${frontendDir}/build/* ${frontendDir}/
+sudo rm -rf ${frontendDir}/build
+sudo chown -R www-data:www-data ${frontendDir}
+sudo rm ~/frontend-app-${envName}.zip
 
-            cd ${backendDir}
-            npm install
-            sudo systemctl restart ${backendService}
-            sudo systemctl restart nginx
-        EOF
-    """
+sudo unzip -o ~/backend-app-${envName}.zip -d ${backendDir}
+sudo rm ~/backend-app-${envName}.zip
+sudo chown -R vagrant:vagrant ${backendDir}
+
+cd ${backendDir}
+npm install
+sudo systemctl daemon-reload
+sudo systemctl restart ${backendService}
+sudo systemctl restart nginx
+EOF
+        """
+    }
 }
 
 pipeline {
@@ -125,7 +139,7 @@ pipeline {
                     sh """
                       chmod -R +x ./.providers ../../provision
                       terraform init -plugin-dir=./.providers -backend-config="key=terra-infra/terraform.tfstate"
-                      terraform apply -var="app_enable=true" -auto-approve=true
+                      terraform apply -var="app_enable=true" -var="vm_state=up" -auto-approve=true
                     """
                 }
             }
@@ -134,6 +148,9 @@ pipeline {
         stage('Deploy to Staging') {
             when {
                 branch 'develop'
+            }
+            environment {
+                  VAGRANT_CWD = "${WORKSPACE}/failops/infra/output"
             }
             steps {
                 script {
@@ -147,17 +164,17 @@ pipeline {
                 branch 'develop'
             }
             environment {
-               API_BASE_URL = "http://192.168.56.11:3001"   // Backend staging port
-               FRONTEND_BASE_URL = "http://192.168.56.11:81"   // Frontend staging URL
+               API_BASE_URL = "http://192.168.57.11:3001"   // Backend staging port
+               FRONTEND_BASE_URL = "http://192.168.57.11:81"   // Frontend staging URL
+               VAGRANT_CWD = "${WORKSPACE}/failops/infra/output"
             }
             parallel {
                 stage('Frontend E2E Test') {
                     steps {
                         dir('tests/frontend') {
                             sh """
-                                export BASE_URL=$FRONTEND_BASE_URL
                                 npm install
-                                npx cypress run --config baseUrl=$BASE_URL
+                                xvfb-run --auto-servernum -- npx cypress run --config baseUrl=$FRONTEND_BASE_URL
                             """   
                         }
                     }
@@ -179,7 +196,7 @@ pipeline {
         stage('Manual Approval for Production') {
             when { branch 'master' }
             steps {
-                input "Approve Deployment to Production?"
+                input "Approve Deployment to Production ?"
             }
         }
 
@@ -187,9 +204,22 @@ pipeline {
             when {
                 branch 'master'
             }
+            environment {
+                  VAGRANT_CWD = "${WORKSPACE}/failops/infra/output"
+            }
             steps {
                 script {
                     deployApp('master', 'prod', '/var/www/my-app-prod', '/opt/my-app-backend-prod', 'my-app-backend-prod')
+                }
+            }
+        }
+        
+        stage('Halt App VM') {
+            steps {
+                dir('failops/infra/terraform/vagrant') {
+                    sh """
+                      terraform apply -var="vm_state=halt" -auto-approve=true
+                    """
                 }
             }
         }
@@ -204,3 +234,5 @@ pipeline {
         }
     }
 }
+    
+                
