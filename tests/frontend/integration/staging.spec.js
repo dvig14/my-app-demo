@@ -7,7 +7,7 @@ describe('FailOps Lab Frontend Staging Tests', () => {
   });
 
   it('should display main header', () => {
-    cy.get('h1').contains('FailOps Lab').should('be.visible');
+    cy.contains('header', 'FailOps Lab').should('be.visible');
   });
 
   it('should navigate to API status page', () => {
