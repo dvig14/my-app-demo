@@ -6,15 +6,10 @@ def deployApp(branchName, envName, frontendDir, backendDir, backendService) {
             mc cp $MINIO_ALIAS/$MINIO_BUCKET/frontend/$branchName/$BUILD_ID_TAG/frontend.zip ./frontend-app-${envName}.zip
             mc cp $MINIO_ALIAS/$MINIO_BUCKET/backend/$branchName/$BUILD_ID_TAG/backend.zip ./backend-app-${envName}.zip
 
-            scp -o StrictHostKeyChecking=no frontend-app-${envName}.zip vagrant@192.168.57.11:~/
-            scp -o StrictHostKeyChecking=no backend-app-${envName}.zip vagrant@192.168.57.11:~/
+            scp -o StrictHostKeyChecking=no frontend-app-${envName}.zip vagrant@192.168.56.11:~/
+            scp -o StrictHostKeyChecking=no backend-app-${envName}.zip vagrant@192.168.56.11:~/
 
-            ssh -o StrictHostKeyChecking=no vagrant@192.168.57.11 << EOF
-if ! command -v unzip &> /dev/null; then
-    echo "unzip not found. Installing..."
-    sudo apt-get update
-    sudo apt-get install -y unzip
-fi
+            ssh -o StrictHostKeyChecking=no vagrant@192.168.56.11 << EOF
 
 sudo rm -rf ${frontendDir}/*
 sudo unzip -o ~/frontend-app-${envName}.zip -d ${frontendDir}
@@ -28,7 +23,7 @@ sudo rm ~/backend-app-${envName}.zip
 sudo chown -R vagrant:vagrant ${backendDir}
 
 cd ${backendDir}
-npm install
+npm ci
 sudo systemctl daemon-reload
 sudo systemctl restart ${backendService}
 sudo systemctl restart nginx
@@ -38,7 +33,7 @@ EOF
 }
 
 pipeline {
-    agent any
+    agent any // default = Jenkins master (Linux)
 
     tools {
         nodejs 'NodeJS_18'
@@ -79,6 +74,9 @@ pipeline {
                             ]]
                         ])
                     }
+
+                    // stash the infra folder so other agents (Windows) can use it
+                    stash includes: 'failops/**', name: 'failops'
                 }
             }
         }
@@ -88,7 +86,7 @@ pipeline {
                 stage('Frontend') {
                     steps {
                         dir('frontend') {
-                            sh 'npm install'
+                            sh 'npm ci'
                             sh 'npm test'
                         }
                     }
@@ -96,7 +94,7 @@ pipeline {
                 stage('Backend') {
                     steps {
                         dir('backend') {
-                            sh 'npm install'
+                            sh 'npm ci'
                             sh 'npm run test:unit'
                         }
                     }
@@ -134,11 +132,13 @@ pipeline {
         }
 
         stage('Provision Infra') {
+            agent { label 'windows' }
             steps {
+                // get the infra files that were checked out on the master
+                unstash 'failops'
                 dir('failops/infra/terraform/vagrant') {
-                    sh """
-                      chmod -R +x ./.providers ../../provision
-                      terraform init -plugin-dir=./.providers -backend-config="key=terra-infra/terraform.tfstate"
+                    bat """
+                      terraform init -backend-config="key=terra-infra/terraform.tfstate"
                       terraform apply -var="app_enable=true" -var="vm_state=up" -auto-approve=true
                     """
                 }
@@ -146,12 +146,7 @@ pipeline {
         }
 
         stage('Deploy to Staging') {
-            when {
-                branch 'develop'
-            }
-            environment {
-                  VAGRANT_CWD = "${WORKSPACE}/failops/infra/output"
-            }
+            when { branch 'develop' }
             steps {
                 script {
                     deployApp('develop', 'staging', '/var/www/my-app-staging', '/opt/my-app-backend-staging', 'my-app-backend-staging')
@@ -160,21 +155,18 @@ pipeline {
         }
 
         stage('Staging Tests') {
-            when {
-                branch 'develop'
-            }
+            when { branch 'develop' }
             environment {
-               API_BASE_URL = "http://192.168.57.11:3001"   // Backend staging port
-               FRONTEND_BASE_URL = "http://192.168.57.11:81"   // Frontend staging URL
-               VAGRANT_CWD = "${WORKSPACE}/failops/infra/output"
+               API_BASE_URL = "http://192.168.56.11:3001"   // Backend staging port
+               FRONTEND_BASE_URL = "http://192.168.56.11:81"   // Frontend staging URL
             }
             parallel {
                 stage('Frontend E2E Test') {
                     steps {
                         dir('tests/frontend') {
                             sh """
-                                npm install
-                                xvfb-run --auto-servernum -- npx cypress run --config baseUrl=$FRONTEND_BASE_URL
+                                npm ci
+                                npx cypress run 
                             """   
                         }
                     }
@@ -184,7 +176,7 @@ pipeline {
                         dir('backend') {
                             sh """
                                 export API_BASE_URL=$API_BASE_URL
-                                npm install
+                                npm ci
                                 npm run test:staging
                             """
                         }
@@ -201,12 +193,7 @@ pipeline {
         }
 
         stage('Deploy to Production') {
-            when {
-                branch 'master'
-            }
-            environment {
-                  VAGRANT_CWD = "${WORKSPACE}/failops/infra/output"
-            }
+            when { branch 'master' }
             steps {
                 script {
                     deployApp('master', 'prod', '/var/www/my-app-prod', '/opt/my-app-backend-prod', 'my-app-backend-prod')
@@ -215,9 +202,11 @@ pipeline {
         }
         
         stage('Halt App VM') {
+            agent { label 'windows' }
             steps {
+                unstash 'failops'
                 dir('failops/infra/terraform/vagrant') {
-                    sh """
+                    bat """
                       terraform apply -var="vm_state=halt" -auto-approve=true
                     """
                 }
@@ -234,5 +223,3 @@ pipeline {
         }
     }
 }
-    
-                

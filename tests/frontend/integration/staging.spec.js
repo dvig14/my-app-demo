@@ -2,7 +2,7 @@ describe('FailOps Lab Frontend Staging Tests', () => {
 
   before(() => {
     // Runs once before all tests
-    // BASE_URL is already set from Jenkins environment variable
+    // BASE_URL is already set in cypress.config.js
     cy.visit('/');
   });
 
