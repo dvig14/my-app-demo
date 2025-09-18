@@ -74,9 +74,6 @@ pipeline {
                             ]]
                         ])
                     }
-
-                    // stash the infra folder so other agents (Windows) can use it
-                    stash includes: 'failops/**', name: 'failops'
                 }
             }
         }
@@ -134,14 +131,14 @@ pipeline {
         stage('Provision Infra') {
             agent { label 'windows' }
             steps {
-                // get the infra files that were checked out on the master
-                unstash 'failops'
                 dir('failops/infra/terraform/vagrant') {
                     bat """
                       terraform init -backend-config="key=terra-infra/terraform.tfstate"
                       terraform apply -var="app_enable=true" -var="vm_state=up" -auto-approve=true
                     """
                 }
+
+                stash includes: 'failops/infra/output/**', name: 'output'
             }
         }
 
@@ -204,7 +201,7 @@ pipeline {
         stage('Halt App VM') {
             agent { label 'windows' }
             steps {
-                unstash 'failops'
+                unstash 'output'
                 dir('failops/infra/terraform/vagrant') {
                     bat """
                       terraform apply -var="vm_state=halt" -auto-approve=true
